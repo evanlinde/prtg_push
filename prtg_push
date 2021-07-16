@@ -1,0 +1,150 @@
+#!/bin/bash
+#
+# Send sensor data to PRTG via HTTP Push. Use either directly specified
+# values or output from existing sensor scripts.
+#
+# This script should be compatible with the HTTP Push Data and HTTP Push
+# Count sensors.
+#
+# Requires: bash >= 4.2, curl >= 7.18.0, sed
+#
+
+show_help(){
+cat << END_HELP
+
+Send sensor data to PRTG via HTTP Push.
+
+Usage:
+
+  Report values directly:
+
+    $0 -a <probe_address> -t <token> -v <numeric_value> [-m <message>] [-p]
+
+  Push values from sensor script output:
+
+    $0 -a <probe_address> -t <token> -d <data> [-e] [-p]
+    <sensor_script> | $0 -a <probe_address> -t <token> [-e] [-p]
+
+  Report to a Push Count sensor:
+
+    $0 -a <probe_address> -t <token> -n
+
+Options:
+
+  -a <probe_address>
+        Base address of the PRTG probe including protocol (http or https),
+        hostname or IP address, and port (e.g.: "https://10.2.3.4:5051").
+
+  -t <token>
+        Token to match the target sensor in PRTG.
+
+  -d <data> 
+        PRTG sensor script output interpreted in returncode:value:message
+        format by default. This option is only in effect when the "-v" 
+        option is not used. (May also be read from piped input.)
+
+  -e
+        Interpret <data> in standard EXE/Script Sensor format (i.e.
+        value:message) instead of standard SSH Script Sensor format
+        (i.e. returncode:value:message).
+
+  -v <numeric_value>
+        Value to assign to the target sensor in PRTG. If this option is
+        supplied, the -d option and piped data are ignored.
+
+  -m <message>
+        Optional message text to appear on target sensor in PRTG. Only
+        applied when the -v option is used.
+
+  -n
+        Don't submit any value or data; only call the sensor webhook.
+        Only useful for the HTTP Push Count sensor. If this option is
+        supplied, the -v and -d options and piped data are ignored.
+        
+  -p
+        Push data via POST request. (If not specified, a GET request is
+        used.) This option is ignored when the -n option is used.
+
+END_HELP
+exit 1
+}
+
+
+suggest_help(){
+    echo "For help, run: $0 -?" 1>&2
+    exit 1
+}
+
+
+url_encode(){
+    # Pipe stuff to this function to url-encode it.
+    # Use curl to url-encode the piped string and then remove 
+    # the "/?" that curl adds at the beginning.
+    curl -Gso /dev/null -w %{url_effective} --data-urlencode @- "" | sed -e 's:^/?::';
+}
+
+
+# Defaults
+data_format="ssh"
+request="GET"
+curl_opts="--insecure" # accept untrusted certificates
+
+
+while getopts ":a:t:d:ev:m:np" opt; do
+  case "${opt}" in
+    a)  probe_address="${OPTARG}" ;;
+    t)  token="${OPTARG}" ;;
+    d)  data="${OPTARG}" ;;
+    e)  data_format="exe" ;;
+    v)  val="${OPTARG}" ;;
+    m)  msg="${OPTARG}" ;;
+    n)  request="count" ;;
+    p)  request="POST" ;;
+    \?) show_help ;;
+  esac
+done
+shift $((OPTIND -1))
+
+if [[ ! -v probe_address ]] || [[ ! -v token ]]; then 
+    echo "ERROR: Probe address or token not set." 1>&2
+    suggest_help
+fi
+
+webhook="${probe_address}/${token}"
+
+if [[ "${request}" == "count" ]]; then
+
+    # Just call the webhook and don't submit any data
+    curl ${curl_opts} "${webhook}"
+
+else  # submitting to a push data sensor
+
+    if [[ ! -v val ]]; then
+        # Parse value and message from script output
+        # Use piped input preferentially
+        if [[ -p /dev/stdin ]]; then
+            data="$(cat)"
+        fi
+
+        if [[ ! -v data ]] || [[ -z "${data}" ]]; then
+            echo "ERROR: Did not receive numeric value or script output." 1>&2
+            suggest_help
+        fi
+
+        # Split ${data} into its components
+        if [[ "${data_format}" == "exe" ]]; then
+            IFS=":" read val msg <<< "${data}"
+        else  # data_format == ssh
+            IFS=":" read rcode val msg <<< "${data}"
+        fi
+    fi
+
+    umsg=$(echo -n "${msg}" | url_encode)
+    submit_data="value=${val}&text=${umsg}"
+
+    if [[ "${request}" == "POST" ]]; then
+        curl ${curl_opts} --request "${request}" --data "${submit_data}" "${webhook}"
+    else  # request == GET
+        curl ${curl_opts} "${webhook}?${submit_data}"
+    fi
+fi

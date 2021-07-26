@@ -2,14 +2,17 @@
 
 Turn custom sensor scripts into HTTP Push sensors.
 
-The scripts themselves are not sensors; they are interfaces for using existing (non-push) sensor scripts as push sensors and creating new push sensors. 
+The scripts themselves are not sensors; they are interfaces for using existing (non-push) sensor scripts as push sensors and creating new push sensors. Equivalent scripts are provided here for both bash and powershell.
 
 Sensor Type                  | Compatible Script
 -----------------------------|--------------------
-HTTP Push Count              | `prtg_push` (with the `-n` option)
+HTTP Push Count              | `prtg_push`
 HTTP Push Data               | `prtg_push`
 HTTP Push Data Advanced      | `prtg_push_advanced`
 HTTP IoT Push Data Advanced  | `prtg_push_advanced`
+
+
+# Bash Scripts
 
 These scripts are intended for Linux systems, however they should also work on Unix, macOS, and even Windows (e.g. with Cygwin) as long as the listed dependencies are installed.
 
@@ -45,3 +48,10 @@ adv_script | prtg_push_advanced -a "${probe}" -t "sensor3_token"
 
 These scripts use curl's `--insecure` option in order to work with your PRTG system's (likely) untrusted certificate. If you're using https and care about identity verification and not just having encryption, you'll want to make sure your system's cert is trusted and then remove this option.
 
+
+
+# PowerShell
+
+The powershell scripts are roughly equivalent to their bash counterparts. The most notable differences are the flags used to specify command line options (e.g. `-probeAddress` vs. `-a`). Additionally, there is not an equivalent to curl's `--insecure` option applied with `Invoke-WebRequest`. The `prtg_push.ps1` script does not accept the three-part output from custom ssh scripts.
+
+Full details on the command line options are available in each script's help. (Run `get-help .\prtg_push.ps1` [for example] to view help, or read the script file.) 
